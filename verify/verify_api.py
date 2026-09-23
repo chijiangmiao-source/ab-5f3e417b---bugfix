@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 
 import httpx
 
@@ -135,8 +136,55 @@ def scenario_conflict() -> None:
     check("附带人类可读冲突说明", bool(c["message"]))
 
 
+def scenario_long_chain() -> None:
+    print("D. 24 边长链（同优解 2,704,156 个，不得枚举）")
+    nodes = ["R"] + [f"n{i:02d}" for i in range(1, 24)] + ["L1", "L2"]
+    edges = []
+    prev = "R"
+    for i in range(24):
+        nxt = "L1" if i == 23 else f"n{i + 1:02d}"
+        edges.append({"id": f"c{i:02d}", "source": prev, "target": nxt,
+                      "delay": 0, "cap": 1})
+        prev = nxt
+    edges.append({"id": "z", "source": "R", "target": "L2", "delay": 0, "cap": 1})
+    batch = {
+        "nodes": nodes,
+        "edges": edges,
+        "windows": [{"node": "L1", "lo": 12, "hi": 12},
+                    {"node": "L2", "lo": 0, "hi": 0}],
+    }
+    t0 = time.time()
+    r = post(batch)
+    dt = time.time() - t0
+    check(f"长链在 10s 内返回（实际 {dt:.2f}s）", dt < 10, f"{dt:.2f}s")
+    check("status=feasible", r["status"] == "feasible",
+          (r.get("conflict") or {}).get("message", ""))
+    if r["status"] != "feasible":
+        return
+    check("正补偿边数=12", r["objectives"]["positive_edges"] == 12,
+          str(r["objectives"]["positive_edges"]))
+    check("总加量=12", r["objectives"]["total_compensation"] == 12,
+          str(r["objectives"]["total_compensation"]))
+    order = [f"c{i:02d}" for i in range(24)] + ["z"]
+    check("向量按边标识排序", r["objectives"]["vector_order"] == order)
+    expected = [0] * 12 + [1] * 12 + [0]
+    check("规范向量 c00..c11=0, c12..c23=1, z=0",
+          r["objectives"]["vector"] == expected,
+          str(r["objectives"]["vector"]))
+    by_id = {x["id"]: x for x in r["edges"]}
+    chain_ranges = all(
+        (by_id[f"c{i:02d}"]["min"], by_id[f"c{i:02d}"]["max"]) == (0, 1)
+        for i in range(24)
+    )
+    check("24 条链边在同优解中范围均为 0..1", chain_ranges)
+    check("固定边 z 范围 0..0、采用 0",
+          (by_id["z"]["chosen"], by_id["z"]["min"], by_id["z"]["max"]) == (0, 0, 0))
+    arrivals = {x["node"]: x["arrival"] for x in r["leaves"]}
+    check("叶端到达 L1=12, L2=0", arrivals == {"L1": 12, "L2": 0}, str(arrivals))
+
+
 def scenario_validation() -> None:
-    print("D. 校验失败路径 (422)")
+    print("E. 校验失败路径 (422)")
     bad = {
         "nodes": ["R", "A"],
         "edges": [{"id": "e1", "source": "R", "target": "A", "delay": -1, "cap": 16}],
@@ -154,6 +202,7 @@ def main() -> int:
     scenario_shared()
     scenario_ranges()
     scenario_conflict()
+    scenario_long_chain()
     scenario_validation()
     print(f"\nAPI 核对: {len(FAILURES)} 项失败")
     return 1 if FAILURES else 0

@@ -122,4 +122,27 @@ export const SAMPLES: Record<string, Batch> = {
       { node: "L2", lo: 8, hi: 8 },
     ],
   },
+  longChain: (() => {
+    // 24 条 cap=1 的边从 R 串到 L1（c00..c23），固定边 z 接 L2；
+    // 同优解共 C(24,12)=2,704,156 个，但响应不应随同优解数量增长。
+    const nodes: string[] = ["R"];
+    for (let i = 1; i <= 23; i++) nodes.push(`n${String(i).padStart(2, "0")}`);
+    nodes.push("L1", "L2");
+    const edges: EdgeIn[] = [];
+    let prev = "R";
+    for (let i = 0; i < 24; i++) {
+      const next = i === 23 ? "L1" : `n${String(i + 1).padStart(2, "0")}`;
+      edges.push({ id: `c${String(i).padStart(2, "0")}`, source: prev, target: next, delay: 0, cap: 1 });
+      prev = next;
+    }
+    edges.push({ id: "z", source: "R", target: "L2", delay: 0, cap: 1 });
+    return {
+      nodes,
+      edges,
+      windows: [
+        { node: "L1", lo: 12, hi: 12 },
+        { node: "L2", lo: 0, hi: 0 },
+      ],
+    } satisfies Batch;
+  })(),
 };

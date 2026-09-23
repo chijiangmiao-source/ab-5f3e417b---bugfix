@@ -167,6 +167,45 @@ async function main() {
   check("冲突面板列出 L2：要求 [8,8]、可达 [0,16]",
     l2?.includes("[8,8]") && l2?.includes("[0,16]"), l2);
 
+  // ---- C2. long chain: millions of co-optima but instant result ---------
+  console.log("C2. 页面展示 24 边长链（同优解 270 万，不枚举）");
+  await loadSampleAndSubmit(w, "长链同优解");
+  await waitFor(() => {
+    const v = $(w, '[data-testid="vector"]');
+    return v && v.textContent.includes("c23") ? v : null;
+  }, { timeout: 20000, label: "长链目标向量" });
+  const objText = $(w, '[data-testid="objectives"]')?.textContent ?? "";
+  check("第一级正补偿边数 12", /（第一级）\s*12/.test(objText.replace(/\s+/g, "")),
+    objText);
+  check("第二级总加量 12", /（第二级）\s*12/.test(objText.replace(/\s+/g, "")),
+    objText);
+  const lcVector = $(w, '[data-testid="vector"]')?.textContent.replace(/\s+/g, "");
+  const expectedVector =
+    "(" + Array.from({ length: 24 }, (_, i) => `c${String(i).padStart(2, "0")}`)
+      .join(",") + ",z)=(" + "0,".repeat(12) + "1,".repeat(11) + "1,0)";
+  check("规范向量 c00..c11=0,c12..c23=1,z=0",
+    lcVector === expectedVector, lcVector);
+  const edgeCell = (id, attr) => $(w, `[data-${attr}="${id}"]`)?.textContent.trim();
+  await waitFor(() => $(w, '[data-edge="z"]'), { label: "长链边表" });
+  check("c00 采用 0、范围 0..1（加量被字典序后置）",
+    edgeCell("c00", "chosen") === "0" && edgeCell("c00", "min") === "0" &&
+      edgeCell("c00", "max") === "1");
+  check("c11 采用 0、范围 0..1",
+    edgeCell("c11", "chosen") === "0" && edgeCell("c11", "min") === "0" &&
+      edgeCell("c11", "max") === "1");
+  check("c12 采用 1、范围 0..1",
+    edgeCell("c12", "chosen") === "1" && edgeCell("c12", "min") === "0" &&
+      edgeCell("c12", "max") === "1");
+  check("c23 采用 1、范围 0..1",
+    edgeCell("c23", "chosen") === "1" && edgeCell("c23", "min") === "0" &&
+      edgeCell("c23", "max") === "1");
+  check("z 采用 0、范围 0..0",
+    edgeCell("z", "chosen") === "0" && edgeCell("z", "min") === "0" &&
+      edgeCell("z", "max") === "0");
+  check("叶端表到达 L1=12、L2=0",
+    $(w, '[data-leaf-arrival="L1"]')?.textContent.trim() === "12" &&
+      $(w, '[data-leaf-arrival="L2"]')?.textContent.trim() === "0");
+
   // ---- D. failed validation must preserve the input ---------------------
   console.log("D. 校验/请求失败后页面保留输入");
   const textarea = $(w, '[data-testid="batch-input"]');

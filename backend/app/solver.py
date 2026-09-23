@@ -290,51 +290,55 @@ def solve(model: Model) -> dict:
     p_star = int(round(res.fun))
 
     # Stage 2: minimum total compensation among stage-1 optima (cost on x).
-    best_total: int | None = None
-    optimal_vectors: list[dict[int, int]] = []
-    fixed: dict[int, int] = {}
-
-    def enumerate_stage_one(position: int) -> None:
-        nonlocal best_total, optimal_vectors
-        if position == len(model.order):
-            total = sum(fixed.values())
-            if best_total is None or total < best_total:
-                best_total = total
-                optimal_vectors = [dict(fixed)]
-            elif total == best_total:
-                optimal_vectors.append(dict(fixed))
-            return
-
-        edge_index = model.order[position]
-        for value in range(model.edges[edge_index].cap + 1):
-            fixed[edge_index] = value
-            res = _solve_milp(
-                model,
-                fixed=fixed,
-                positive_count=p_star,
-            )
-            if res.success:
-                enumerate_stage_one(position + 1)
-        fixed.pop(edge_index, None)
-
-    enumerate_stage_one(0)
-    if best_total is None:  # pragma: no cover
+    c_x = np.zeros(2 * m)
+    c_x[:m] = 1.0
+    res = _solve_milp(model, cost=c_x, positive_count=p_star)
+    if not res.success:  # pragma: no cover - guarded by feasibility call
         raise SolverError("第二级目标求解失败")
-    t_star = best_total
+    t_star = int(round(res.fun))
 
-    # Stage 3: lexicographically smallest vector in edge-id order.
-    chosen = min(
-        optimal_vectors,
-        key=lambda vector: tuple(vector[i] for i in model.order),
-    )
+    # Stage 3: lexicographically smallest vector in edge-id order. Fix the
+    # coordinates one at a time to the smallest value that still admits a
+    # stage-1&2 optimum; this is O(m) MILPs instead of enumerating (possibly
+    # millions of) co-optimal vectors.
+    chosen: dict[int, int] = {}
+    for edge_index in model.order:
+        cost = np.zeros(2 * m)
+        cost[edge_index] = 1.0
+        res = _solve_milp(
+            model,
+            cost=cost,
+            fixed=chosen,
+            positive_count=p_star,
+            total_comp=t_star,
+        )
+        if not res.success:  # pragma: no cover
+            raise SolverError("第三级目标求解失败")
+        chosen[edge_index] = int(round(res.fun))
 
-    # Ranges across ALL solutions optimal for stages 1 & 2.
+    # Ranges across ALL solutions optimal for stages 1 & 2: per edge, optimize
+    # that coordinate alone over the stage-1&2 optimum set. Work is O(m) MILPs
+    # and is independent of how many co-optimal solutions exist.
     minima: dict[int, int] = {}
     maxima: dict[int, int] = {}
     for i in range(m):
-        values = [vector[i] for vector in optimal_vectors]
-        minima[i] = min(values)
-        maxima[i] = max(values)
+        if model.edges[i].cap == 0:
+            minima[i] = maxima[i] = 0
+            continue
+        c_min = np.zeros(2 * m)
+        c_min[i] = 1.0
+        r_min = _solve_milp(
+            model, cost=c_min, positive_count=p_star, total_comp=t_star
+        )
+        c_max = np.zeros(2 * m)
+        c_max[i] = -1.0
+        r_max = _solve_milp(
+            model, cost=c_max, positive_count=p_star, total_comp=t_star
+        )
+        if not r_min.success or not r_max.success:  # pragma: no cover
+            raise SolverError("同优解逐边范围求解失败")
+        minima[i] = int(round(r_min.fun))
+        maxima[i] = int(round(-r_max.fun))
 
     return _feasible_report(model, chosen, minima, maxima, p_star, t_star)
 
