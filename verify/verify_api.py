@@ -135,8 +135,56 @@ def scenario_conflict() -> None:
     check("附带人类可读冲突说明", bool(c["message"]))
 
 
+def scenario_long_chain() -> None:
+    print("D. 24 边长链（270 万同优解不得线性拖慢响应）")
+    chain = ["R"] + [f"n{k:02d}" for k in range(1, 24)] + ["L1"]
+    edges = [
+        {"id": f"c{k:02d}", "source": chain[k], "target": chain[k + 1],
+         "delay": 0, "cap": 1}
+        for k in range(24)
+    ]
+    edges.append({"id": "z", "source": "R", "target": "L2", "delay": 0, "cap": 0})
+    batch = {
+        "nodes": chain + ["L2"],
+        "edges": edges,
+        "windows": [
+            {"node": "L1", "lo": 12, "hi": 12},
+            {"node": "L2", "lo": 0, "hi": 0},
+        ],
+    }
+    # The bug: the old solver issued one MILP per co-optimal solution
+    # (C(24,12) = 2,704,156) and the request never returned. A bounded HTTP
+    # timeout is the regression guard at the API boundary.
+    r = httpx.post(f"{API}/api/v1/solve", json=batch, timeout=30)
+    check("长链请求在 30s 内返回 200", r.status_code == 200,
+          f"status={r.status_code}")
+    if r.status_code != 200:
+        return
+    r = r.json()
+    check("status=feasible", r["status"] == "feasible",
+          (r.get("conflict") or {}).get("message", ""))
+    if r["status"] != "feasible":
+        return
+    check("正补偿边数=12", r["objectives"]["positive_edges"] == 12)
+    check("总加量=12", r["objectives"]["total_compensation"] == 12)
+    order = r["objectives"]["vector_order"]
+    vector = r["objectives"]["vector"]
+    check("向量按 c00..c23,z 排序", order == [f"c{k:02d}" for k in range(24)] + ["z"])
+    check("规范向量 c00..c11=0, c12..c23=1, z=0",
+          vector == [0] * 12 + [1] * 12 + [0], str(vector))
+    e = {x["id"]: x for x in r["edges"]}
+    ranges_ok = all(
+        (e[f"c{k:02d}"]["min"], e[f"c{k:02d}"]["max"]) == (0, 1)
+        for k in range(24)
+    )
+    check("24 条链边同优范围均为 0..1", ranges_ok)
+    check("固定边 z 同优范围 0..0", (e["z"]["min"], e["z"]["max"]) == (0, 0))
+    arrivals = {x["node"]: x["arrival"] for x in r["leaves"]}
+    check("L1 到达 12、L2 到达 0", arrivals == {"L1": 12, "L2": 0}, str(arrivals))
+
+
 def scenario_validation() -> None:
-    print("D. 校验失败路径 (422)")
+    print("E. 校验失败路径 (422)")
     bad = {
         "nodes": ["R", "A"],
         "edges": [{"id": "e1", "source": "R", "target": "A", "delay": -1, "cap": 16}],
@@ -154,6 +202,7 @@ def main() -> int:
     scenario_shared()
     scenario_ranges()
     scenario_conflict()
+    scenario_long_chain()
     scenario_validation()
     print(f"\nAPI 核对: {len(FAILURES)} 项失败")
     return 1 if FAILURES else 0

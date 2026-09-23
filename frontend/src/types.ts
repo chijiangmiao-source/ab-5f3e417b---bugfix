@@ -122,4 +122,34 @@ export const SAMPLES: Record<string, Batch> = {
       { node: "L2", lo: 8, hi: 8 },
     ],
   },
+  longChain: (() => {
+    // 长链：R -c00..c23(24 条 cap=1 边)-> L1，另以固定边 z 接 L2。
+    // L1 闭点 12、L2 闭点 0；前两级同优解恰有 C(24,12)=2,704,156 种，
+    // 响应时间不得随该总数增长；规范向量把 12 个 1 后置到 c12..c23。
+    const chain = [
+      "R",
+      ...Array.from({ length: 23 }, (_, k) =>
+        `n${String(k + 1).padStart(2, "0")}`
+      ),
+      "L1",
+    ];
+    const pad2 = (k: number) => String(k).padStart(2, "0");
+    return {
+      nodes: [...chain, "L2"],
+      edges: [
+        ...Array.from({ length: 24 }, (_, k) => ({
+          id: `c${pad2(k)}`,
+          source: chain[k],
+          target: chain[k + 1],
+          delay: 0,
+          cap: 1,
+        })),
+        { id: "z", source: "R", target: "L2", delay: 0, cap: 0 },
+      ],
+      windows: [
+        { node: "L1", lo: 12, hi: 12 },
+        { node: "L2", lo: 0, hi: 0 },
+      ],
+    };
+  })(),
 };

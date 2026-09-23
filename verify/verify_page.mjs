@@ -167,8 +167,44 @@ async function main() {
   check("冲突面板列出 L2：要求 [8,8]、可达 [0,16]",
     l2?.includes("[8,8]") && l2?.includes("[0,16]"), l2);
 
-  // ---- D. failed validation must preserve the input ---------------------
-  console.log("D. 校验/请求失败后页面保留输入");
+  // ---- D. long chain with exponentially many co-optima ------------------
+  console.log("D. 页面展示 24 边长链（270 万同优解仍及时返回）");
+  await loadSampleAndSubmit(w, "24 边长链（百万同优解）");
+  // The old backend never responded; this wait doubles as the latency guard.
+  await waitFor(
+    () => $(w, '[data-edge="z"]') && $(w, '[data-chosen="c23"]'),
+    { label: "长链边表", timeout: 30000 }
+  );
+  const obj = $(w, '[data-testid="objectives"]')?.textContent ?? "";
+  check("目标摘要显示正边数 12、总加量 12",
+    obj.includes("12") && $(w, '[data-testid="vector"]'));
+  check("c00 采用 0、c11 采用 0（字典序前缀为零）",
+    $(w, '[data-chosen="c00"]')?.textContent.trim() === "0" &&
+      $(w, '[data-chosen="c11"]')?.textContent.trim() === "0");
+  check("c12 采用 1、c23 采用 1（补偿后置）",
+    $(w, '[data-chosen="c12"]')?.textContent.trim() === "1" &&
+      $(w, '[data-chosen="c23"]')?.textContent.trim() === "1");
+  check("链边同优范围 0..1（抽查 c00/c12/c23）",
+    ["c00", "c12", "c23"].every(
+      (id) =>
+        $(w, `[data-min="${id}"]`)?.textContent.trim() === "0" &&
+        $(w, `[data-max="${id}"]`)?.textContent.trim() === "1"
+    ));
+  check("固定边 z 采用 0、同优范围 0..0",
+    $(w, '[data-chosen="z"]')?.textContent.trim() === "0" &&
+      $(w, '[data-min="z"]')?.textContent.trim() === "0" &&
+      $(w, '[data-max="z"]')?.textContent.trim() === "0");
+  check("树表 L1 到达 12、L2 到达 0",
+    $(w, '[data-arrival="L1"]')?.textContent.trim() === "12" &&
+      $(w, '[data-arrival="L2"]')?.textContent.trim() === "0");
+  const longVector = $(w, '[data-testid="vector"]')?.textContent.replace(/\s+/g, "");
+  check("规范向量按 c00..c23,z 排序且尾部 12 个为 1",
+    longVector?.startsWith("(c00,c01") &&
+      longVector?.includes(")=(0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0)"),
+    longVector);
+
+  // ---- E. failed validation must preserve the input ---------------------
+  console.log("E. 校验/请求失败后页面保留输入");
   const textarea = $(w, '[data-testid="batch-input"]');
   const setter = Object.getOwnPropertyDescriptor(
     w.HTMLTextAreaElement.prototype, "value"

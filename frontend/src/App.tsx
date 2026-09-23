@@ -93,6 +93,9 @@ export default function App() {
             <button type="button" onClick={() => loadSample("windowConflict")}>
               叶端窗口冲突
             </button>
+            <button type="button" onClick={() => loadSample("longChain")}>
+              24 边长链（百万同优解）
+            </button>
           </div>
         </div>
         <textarea
